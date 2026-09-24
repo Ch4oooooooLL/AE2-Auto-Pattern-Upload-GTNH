@@ -9,8 +9,6 @@ import net.minecraftforge.common.MinecraftForge;
 import com.gali.ae2_auto_pattern_upload.mixin.GuiContainerAccessor;
 import com.gali.ae2_auto_pattern_upload.network.ModNetwork;
 import com.gali.ae2_auto_pattern_upload.network.RequestProvidersListPacket;
-import com.glodblock.github.client.gui.GuiFluidPatternTerminal;
-import com.glodblock.github.client.gui.GuiFluidPatternTerminalEx;
 
 import appeng.client.gui.implementations.GuiPatternTerm;
 import appeng.client.gui.implementations.GuiPatternTermEx;
@@ -32,10 +30,8 @@ public class GuiUploadButtonHandler {
             return;
         }
 
-        // 兼容样板终端与增广样板终端，两者布局一致，共享同一按钮位置
-        if (!(gui instanceof GuiPatternTerm) && !(gui instanceof GuiPatternTermEx)
-            && !(gui instanceof GuiFluidPatternTerminal)
-            && !(gui instanceof GuiFluidPatternTerminalEx)) {
+        // 兼容样板终端与增广样板终端（290beta3 起流体样板终端也使用这两个GUI），两者布局一致，共享同一按钮位置
+        if (!(gui instanceof GuiPatternTerm) && !(gui instanceof GuiPatternTermEx)) {
             return;
         }
 

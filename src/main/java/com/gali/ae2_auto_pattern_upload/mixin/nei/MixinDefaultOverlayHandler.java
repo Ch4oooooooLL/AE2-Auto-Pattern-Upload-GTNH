@@ -21,7 +21,7 @@ public abstract class MixinDefaultOverlayHandler {
     private void ae2AutoPatternUpload$captureRecipe(GuiContainer gui, IRecipeHandler handler, int recipeIndex,
         int multiplier, CallbackInfoReturnable<Integer> cir) {
         if (handler != null) {
-            RecipeNameUtil.captureFromRecipeHandler(handler);
+            RecipeNameUtil.captureFromRecipeHandler(handler, recipeIndex);
         }
     }
 }

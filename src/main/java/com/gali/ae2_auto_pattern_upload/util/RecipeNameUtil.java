@@ -6,14 +6,18 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.StatCollector;
 
 import com.gali.ae2_auto_pattern_upload.MyMod;
@@ -22,6 +26,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import codechicken.nei.PositionedStack;
 import codechicken.nei.recipe.IRecipeHandler;
 import cpw.mods.fml.common.Loader;
 
@@ -272,7 +277,7 @@ public final class RecipeNameUtil {
         return null;
     }
 
-    public static void captureFromRecipeHandler(IRecipeHandler handler) {
+    public static void captureFromRecipeHandler(IRecipeHandler handler, int recipeIndex) {
         if (handler == null) {
             return;
         }
@@ -291,42 +296,237 @@ public final class RecipeNameUtil {
         }
 
         // 保存映射后的显示名称（用于搜索）
-        String keyword = mapRecipeHandlerToSearchKey(handler);
+        String keyword = mapRecipeHandlerToSearchKey(handler, recipeIndex);
         if (keyword != null && !keyword.isEmpty()) {
             setLastRecipeName(keyword);
         }
     }
 
-    public static String mapRecipeHandlerToSearchKey(IRecipeHandler handler) {
+    /**
+     * 生成搜索关键词：配方基名 + 编程电路号 + 按序的 NC（不消耗）物品。
+     * 配方基名与 NC 物品名优先使用游戏运行时本地化结果（装汉化则中文、否则英文短名），
+     * 没有可用名字时回退 注册名_meta。
+     */
+    public static String mapRecipeHandlerToSearchKey(IRecipeHandler handler, int recipeIndex) {
         if (handler == null) {
             return null;
         }
+        String overlayId = null;
         try {
-            String overlayId = safeOverlayIdentifier(handler);
-            if (overlayId != null) {
-                String mapped = mapStringToMapping(overlayId);
-                if (mapped != null) {
-                    return mapped;
-                }
-                return toDisplayString(overlayId);
-            }
+            overlayId = safeOverlayIdentifier(handler);
         } catch (Throwable ignored) {}
 
-        try {
-            String recipeName = handler.getRecipeName();
-            if (recipeName != null && !recipeName.trim()
-                .isEmpty()) {
-                String mapped = mapStringToMapping(recipeName);
-                if (mapped != null) {
-                    return mapped;
-                }
-                return recipeName.trim();
+        String base = null;
+        // 1) 用户手动映射优先（recipe_names.json）
+        if (base == null && overlayId != null) {
+            String mapped = mapStringToMapping(overlayId);
+            if (mapped != null) {
+                base = mapped;
             }
+        }
+        // 2) 游戏运行时本地化的配方标签名（GT 的 tab 名 = translateToLocal(unlocalizedName)）
+        if (base == null) {
+            base = localizedRecipeTabName(handler, overlayId);
+        }
+        // 3) 英文/未翻译回退
+        if (base == null && overlayId != null) {
+            base = toUnderscoreKey(overlayId);
+        }
+        if (base == null) {
+            try {
+                String recipeName = handler.getRecipeName();
+                if (recipeName != null && !recipeName.trim()
+                    .isEmpty()) {
+                    base = toUnderscoreKey(recipeName);
+                }
+            } catch (Throwable ignored) {}
+        }
+        if (base == null) {
+            base = toUnderscoreKey(
+                handler.getClass()
+                    .getSimpleName());
+        }
+
+        // 附加编程电路号与 NC 物品（按配方输入槽位顺序）
+        List<PositionedStack> inputs = null;
+        try {
+            inputs = handler.getIngredientStacks(recipeIndex);
         } catch (Throwable ignored) {}
 
-        return toDisplayString(
-            handler.getClass()
-                .getSimpleName());
+        StringBuilder sb = new StringBuilder(base);
+        String circuit = extractCircuitToken(inputs);
+        List<String> ncTokens = extractNonConsumedTokens(inputs);
+        if (circuit != null && !circuit.isEmpty()) {
+            sb.append('_')
+                .append(circuit);
+        }
+        for (String nc : ncTokens) {
+            sb.append('_')
+                .append(nc);
+        }
+        return sb.toString();
+    }
+
+    /** 取配方标签名，仅当其是真实翻译（不是未命中的 key 本身）时采用。 */
+    private static String localizedRecipeTabName(IRecipeHandler handler, String overlayId) {
+        try {
+            String tabName = handler.getRecipeTabName();
+            if (tabName == null) {
+                return null;
+            }
+            String trimmed = tabName.trim();
+            if (trimmed.isEmpty()) {
+                return null;
+            }
+            // 未翻译时 translateToLocal 返回 key 本身，不能当显示名用
+            if (overlayId != null && trimmed.equals(overlayId)) {
+                return null;
+            }
+            return cleanToken(trimmed);
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    /**
+     * 清洗为一个关键词片段：去格式码；含中文时原样保留（仅去空白），
+     * 否则小写并把空格/括号/分隔符统一为下划线。
+     */
+    private static String cleanToken(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String s = raw.replaceAll("\u00a7.", "")
+            .trim();
+        if (s.isEmpty()) {
+            return "";
+        }
+        boolean hasCjk = s.codePoints()
+            .anyMatch(cp -> Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN);
+        if (hasCjk) {
+            return s.replaceAll("\\s+", "")
+                .trim();
+        }
+        return toUnderscoreKey(s);
+    }
+
+    /** 从配方输入中提取编程电路号（gt.integrated_circuit 的 meta，0~24）。 */
+    private static String extractCircuitToken(List<?> inputs) {
+        if (inputs == null) {
+            return null;
+        }
+        List<String> numbers = new ArrayList<String>();
+        for (Object obj : inputs) {
+            PositionedStack ps = asPositionedStack(obj);
+            ItemStack stack = primaryStack(ps);
+            if (stack == null || stack.getItem() == null) {
+                continue;
+            }
+            if (isIntegratedCircuit(stack)) {
+                numbers.add(String.valueOf(stack.getItemDamage()));
+            }
+        }
+        return numbers.isEmpty() ? null : String.join("_", numbers);
+    }
+
+    /** 提取配方中不消耗（NC）的物品，按输入顺序返回显示名token（回退 注册名_meta）。 */
+    private static List<String> extractNonConsumedTokens(List<?> inputs) {
+        List<String> tokens = new ArrayList<String>();
+        if (inputs == null) {
+            return tokens;
+        }
+        for (Object obj : inputs) {
+            PositionedStack ps = asPositionedStack(obj);
+            if (ps == null) {
+                continue;
+            }
+            // GT 的 NC 判定：chance==0（"必须存在但不消耗"）或物品 stackSize==0
+            // （模具/模头/电路等在配方里都以 stackSize==0 表示不消耗，
+            // 见 GTNEIDefaultHandler.FixedPositionedStack.isNotConsumed()）
+            if (ps.getChance() != 0 && !hasZeroStackSize(ps)) {
+                continue;
+            }
+            ItemStack stack = primaryStack(ps);
+            if (stack == null || stack.getItem() == null) {
+                continue;
+            }
+            // 编程电路已单独作为电路号输出，不重复计入
+            if (isIntegratedCircuit(stack)) {
+                continue;
+            }
+            // 流体显示栈不是真正的物品输入
+            if (isFluidDisplay(stack)) {
+                continue;
+            }
+            String registryName = Item.itemRegistry.getNameForObject(stack.getItem());
+            if (registryName == null) {
+                continue;
+            }
+            String display = cleanToken(stack.getDisplayName());
+            tokens.add(display.isEmpty() ? registryName + "_" + stack.getItemDamage() : display);
+        }
+        return tokens;
+    }
+
+    /** GT 在配方输入中把"不消耗"表示为 stackSize==0（与 FixedPositionedStack.isNotConsumed 一致）。 */
+    private static boolean hasZeroStackSize(PositionedStack ps) {
+        if (ps.items != null) {
+            for (ItemStack stack : ps.items) {
+                if (stack != null && stack.stackSize == 0) {
+                    return true;
+                }
+            }
+        }
+        return ps.item != null && ps.item.stackSize == 0;
+    }
+
+    /** 判断是否编程电路：以 GT 自己使用的 unlocalizedName 前缀为准，兼注册名兜底。 */
+    private static boolean isIntegratedCircuit(ItemStack stack) {
+        try {
+            String unloc = stack.getUnlocalizedName();
+            if (unloc != null && unloc.startsWith("gt.integrated_circuit")) {
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        try {
+            String registryName = Item.itemRegistry.getNameForObject(stack.getItem());
+            return "gt.integrated_circuit".equals(registryName)
+                || (registryName != null && registryName.endsWith("integrated_circuit"));
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    /** 判断是否流体显示栈（GT 配方中流体输入以 Display_Fluid 物品占位）。 */
+    private static boolean isFluidDisplay(ItemStack stack) {
+        try {
+            String unloc = stack.getUnlocalizedName();
+            if (unloc != null && unloc.toLowerCase(Locale.ROOT)
+                .contains("fluiddisplay")) {
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        try {
+            String registryName = Item.itemRegistry.getNameForObject(stack.getItem());
+            return registryName != null && registryName.toLowerCase(Locale.ROOT)
+                .contains("fluiddisplay");
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static PositionedStack asPositionedStack(Object obj) {
+        return obj instanceof PositionedStack ps ? ps : null;
+    }
+
+    private static ItemStack primaryStack(PositionedStack ps) {
+        if (ps == null) {
+            return null;
+        }
+        if (ps.item != null) {
+            return ps.item;
+        }
+        if (ps.items != null && ps.items.length > 0) {
+            return ps.items[0];
+        }
+        return null;
     }
 
     private static String mapStringToMapping(String raw) {
@@ -386,5 +586,24 @@ public final class RecipeNameUtil {
         cleaned = cleaned.replaceAll("\\s+", " ")
             .trim();
         return cleaned;
+    }
+
+    /** 将所有分隔符与大小写边界统一为下划线，用于生成搜索关键词（如 gt_recipe_extruder）。 */
+    private static String toUnderscoreKey(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String s = raw.trim()
+            .toLowerCase(Locale.ROOT);
+        s = CAMEL_CASE_SPLITTER.matcher(s)
+            .replaceAll(" $1");
+        s = s.replace('.', '_')
+            .replace('-', '_')
+            .replace(':', '_')
+            .replace('(', '_')
+            .replace(')', '_');
+        s = s.replaceAll("[ _]+", "_")
+            .replaceAll("^_+|_+$", "");
+        return s;
     }
 }

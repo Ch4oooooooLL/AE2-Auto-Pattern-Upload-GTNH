@@ -20,6 +20,9 @@ public abstract class MixinRecipeHandlerRef {
     @Shadow(remap = false)
     public IRecipeHandler handler;
 
+    @Shadow(remap = false)
+    public int recipeIndex;
+
     @Inject(method = "fillCraftingGrid(Lnet/minecraft/client/gui/inventory/GuiContainer;I)V", at = @At("HEAD"))
     private void ae2AutoPatternUpload$captureFromFill(GuiContainer gui, int multiplier, CallbackInfo ci) {
         ae2AutoPatternUpload$captureRecipeName();
@@ -33,7 +36,7 @@ public abstract class MixinRecipeHandlerRef {
 
     private void ae2AutoPatternUpload$captureRecipeName() {
         if (this.handler != null) {
-            RecipeNameUtil.captureFromRecipeHandler(this.handler);
+            RecipeNameUtil.captureFromRecipeHandler(this.handler, this.recipeIndex);
         }
     }
 }

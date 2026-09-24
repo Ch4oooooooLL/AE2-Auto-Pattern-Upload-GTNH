@@ -7,11 +7,7 @@ import net.minecraft.inventory.Container;
 import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
 
-import com.glodblock.github.client.gui.container.ContainerFluidPatternTerminal;
-import com.glodblock.github.client.gui.container.ContainerFluidPatternTerminalEx;
-import com.glodblock.github.client.gui.container.base.FCContainerEncodeTerminal;
 import com.glodblock.github.common.item.ItemFluidEncodedPattern;
-import com.glodblock.github.inventory.item.IItemPatternTerminal;
 
 import appeng.api.AEApi;
 import appeng.api.networking.IGrid;
@@ -21,7 +17,6 @@ import appeng.api.networking.IMachineSet;
 import appeng.api.networking.crafting.ICraftingProvider;
 import appeng.api.networking.security.IActionHost;
 import appeng.container.implementations.ContainerPatternTerm;
-import appeng.container.implementations.ContainerPatternTermEx;
 import appeng.container.slot.SlotRestrictedInput;
 import appeng.helpers.IInterfaceHost;
 import appeng.parts.AEBasePart;
@@ -123,44 +118,20 @@ public class UploadPatternPacket implements IMessage {
         }
 
         private IActionHost resolveTerminal(Container container) {
+            // 290beta3 起 IPatternTerminal 直接继承 IActionHost，ContainerPatternTermEx 也继承自 ContainerPatternTerm
             if (container instanceof ContainerPatternTerm term) {
                 return term.getPatternTerminal();
-            }
-            if (container instanceof ContainerPatternTermEx termEx) {
-                return termEx.getPatternTerminal();
-            }
-            if (container instanceof ContainerFluidPatternTerminal fluidTerm) {
-                return fromPatternTerminal(fluidTerm.getPatternTerminal());
-            }
-            if (container instanceof ContainerFluidPatternTerminalEx fluidTermEx) {
-                return fromPatternTerminal(fluidTermEx.getPatternTerminal());
-            }
-            return null;
-        }
-
-        private IActionHost fromPatternTerminal(IItemPatternTerminal terminal) {
-            if (terminal instanceof IActionHost actionHost) {
-                return actionHost;
             }
             return null;
         }
 
         private SlotRestrictedInput resolveOutputSlot(Container container) {
             try {
+                // 290beta3 起流体样板终端使用标准 AE2 容器，ContainerPatternTermEx 继承自 ContainerPatternTerm
                 if (container instanceof ContainerPatternTerm term) {
                     Field field = ContainerPatternTerm.class.getDeclaredField("patternSlotOUT");
                     field.setAccessible(true);
                     return (SlotRestrictedInput) field.get(term);
-                }
-                if (container instanceof ContainerPatternTermEx termEx) {
-                    Field field = ContainerPatternTermEx.class.getDeclaredField("patternSlotOUT");
-                    field.setAccessible(true);
-                    return (SlotRestrictedInput) field.get(termEx);
-                }
-                if (container instanceof FCContainerEncodeTerminal fcContainer) {
-                    Field field = FCContainerEncodeTerminal.class.getDeclaredField("patternSlotOUT");
-                    field.setAccessible(true);
-                    return (SlotRestrictedInput) field.get(fcContainer);
                 }
             } catch (Exception ignored) {}
             return null;
