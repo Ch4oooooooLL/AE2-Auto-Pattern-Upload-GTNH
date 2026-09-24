@@ -1,6 +1,7 @@
 name: Release tagged build
 
-# 推送 v* 形式的版本 tag（例如 v1.1.3）时自动构建，并把 jar 挂到 GitHub Release 上。
+# 推送 v* 形式的版本 tag（例如 v1.2）时自动构建，并把 jar 挂到 GitHub Release 上。
+# Release 的更新日志取自 docs/CHANGELOG.md 中与 tag 同名的小节（见该文件说明）。
 on:
   push:
     tags:
@@ -57,6 +58,36 @@ jobs:
           echo "files=${files}" >> "$GITHUB_OUTPUT"
           echo "Will upload: ${files}"
 
+      - name: Extract release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          short="${tag#v}"
+          notes_file="build/release-notes.md"
+          if [ -f docs/CHANGELOG.md ]; then
+            # 取 "## <tag>" 这一节直到下一个二级标题
+            awk -v tag="${tag}" -v ver="${short}" '
+              /^##[ \t]/ {
+                heading = $0
+                sub(/^##[ \t]+/, "", heading)
+                gsub(/\[/, "", heading)
+                gsub(/\]/, "", heading)
+                gsub(/\t/, " ", heading)
+                split(heading, parts, " ")
+                printing = (parts[1] == tag || parts[1] == ver)
+                next
+              }
+              printing { print }
+            ' docs/CHANGELOG.md > "${notes_file}"
+          fi
+          if [ -s "${notes_file}" ]; then
+            echo "notes_file=${notes_file}" >> "$GITHUB_OUTPUT"
+            echo "使用 docs/CHANGELOG.md 中 ${tag} 的条目作为更新日志"
+          else
+            echo "docs/CHANGELOG.md 中没有 ${tag} 的条目，回退到自动生成的 release notes" >&2
+          fi
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,8 +97,13 @@ jobs:
           case "${GITHUB_REF_NAME}" in
             *-pre|*-snapshot) prerelease="--prerelease" ;;
           esac
+          notes="--generate-notes"
+          notes_file="${{ steps.notes.outputs.notes_file }}"
+          if [ -n "${notes_file}" ]; then
+            notes="--notes-file ${notes_file}"
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
+            ${notes} \
             ${prerelease} \
             ${{ steps.jars.outputs.files }}
