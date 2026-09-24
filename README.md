@@ -9,10 +9,11 @@
 
 ## 依赖
 
-- `com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-691-GTNH:dev`
-- `com.github.GTNewHorizons:NotEnoughItems:2.8.19-GTNH:dev`
+- `com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-1050-GTNH:dev`
+- `com.github.GTNewHorizons:NotEnoughItems:2.8.130-GTNH:dev`
+- `com.github.GTNewHorizons:AE2FluidCraft-Rework:1.5.106-gtnh:dev`
+- `com.github.GTNewHorizons:NotEnoughEnergistics:1.7.41:dev`
 - `codechicken:CodeChickenLib:1.7.10-1.1.3.136:dev@jar`
-- `libs/NotEnoughEnergistics-1.7.14.jar`
 
 如需切换版本，请编辑 `dependencies.gradle`。
 
@@ -23,8 +24,15 @@
 ./gradlew runClient   # 在 GTNH Dev 环境调试
 ```
 
+## 发版
+
+推送 `v*` 形式的版本 tag（例如 `v1.2`）会触发 `.github/workflows/release-tags.yml` 自动构建，
+并把 jar 挂到同名的 GitHub Release 上。更新日志写在 `docs/CHANGELOG.md` 里与该 tag 同名的小节中，
+发版前先补好对应小节。
+
 ## 目录速览
 
 - `src/main/java/com/gali/...`：核心逻辑、网络包、mixin
 - `src/main/resources/mixins.ae2_auto_pattern_upload.json`：mixin 注册表
+- `docs/CHANGELOG.md`：各版本更新日志
 
